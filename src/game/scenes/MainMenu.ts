@@ -1,5 +1,4 @@
 import { GameObjects, Scene } from "phaser";
-
 import { EventBus } from "../EventBus";
 
 export class MainMenu extends Scene {
@@ -13,14 +12,28 @@ export class MainMenu extends Scene {
     }
 
     create() {
-        this.background = this.add.image(512, 384, "background");
+        // Get the current viewport dimensions
+        const { width, height } = this.scale;
 
-        this.logo = this.add.image(512, 300, "logo").setDepth(100);
+        // 1. Background
+        // Place at (0,0) and stretch it to fill the screen
+        this.background = this.add
+            .image(0, 0, "background")
+            .setOrigin(0, 0)
+            .setDisplaySize(width, height);
 
+        // 2. Logo
+        // Place it in the center, adjust Y position as needed
+        this.logo = this.add
+            .image(width * 0.5, height * 0.4, "logo")
+            .setDepth(100)
+            .setOrigin(0.5);
+
+        // 3. Title
         this.title = this.add
-            .text(512, 460, "Main Menu", {
+            .text(width * 0.5, height * 0.6, "Main Menu", {
                 fontFamily: "Arial Black",
-                fontSize: 38,
+                fontSize: "38px",
                 color: "#ffffff",
                 stroke: "#000000",
                 strokeThickness: 8,
@@ -37,12 +50,12 @@ export class MainMenu extends Scene {
             this.logoTween.stop();
             this.logoTween = null;
         }
-
         this.scene.start("Game");
     }
 
     moveLogo(reactCallback: ({ x, y }: { x: number; y: number }) => void) {
         if (this.logoTween) {
+            // Toggle play/pause
             if (this.logoTween.isPlaying()) {
                 this.logoTween.pause();
             } else {
@@ -51,8 +64,16 @@ export class MainMenu extends Scene {
         } else {
             this.logoTween = this.tweens.add({
                 targets: this.logo,
-                x: { value: 750, duration: 3000, ease: "Back.easeInOut" },
-                y: { value: 80, duration: 1500, ease: "Sine.easeOut" },
+                x: {
+                    value: this.scale.width * 0.8,
+                    duration: 3000,
+                    ease: "Back.easeInOut",
+                },
+                y: {
+                    value: this.scale.height * 0.15,
+                    duration: 1500,
+                    ease: "Sine.easeOut",
+                },
                 yoyo: true,
                 repeat: -1,
                 onUpdate: () => {
