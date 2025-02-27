@@ -63,7 +63,6 @@ export class Preloader extends Scene {
 
     create() {
         //  When all the assets have finished loading, move to the MainMenu
-        this.scene.start("MainMenu");
+        this.scene.start("Game");
     }
 }
-
