@@ -2,9 +2,10 @@ import Phaser from "phaser";
 import { EventBus } from "../EventBus";
 
 export class Game extends Phaser.Scene {
-    private graphics!: Phaser.GameObjects.Graphics;
+    private drawingLayer!: Phaser.GameObjects.Graphics;
     private isDrawing = false;
     private lastPos: Phaser.Math.Vector2 | null = null;
+    private drawingPoints: {x: number, y: number}[] = [];
 
     camera: Phaser.Cameras.Scene2D.Camera;
     background: Phaser.GameObjects.Image;
@@ -25,15 +26,18 @@ export class Game extends Phaser.Scene {
     }
 
     create() {
-        this.graphics = this.add.graphics();
-        this.graphics.lineStyle(10, 0x0000ff, 1);
-
         this.camera = this.cameras.main;
-        this.camera.setBackgroundColor(0x00ff00);
-
+        
+        // Setup background layer first
         this.background = this.add.image(512, 384, "background");
-        this.background.setAlpha(0.5);
-
+        
+        // Create transparent drawing layer on top
+        this.drawingLayer = this.add.graphics();
+        this.drawingLayer.lineStyle(10, 0x0000ff, 1); // Blue color for visible drawing
+        
+        // Initialize drawing points array
+        this.drawingPoints = [];
+        
         EventBus.emit("current-scene-ready", this);
 
         this.input.on("pointerdown", this.startDrawing, this);
@@ -43,68 +47,114 @@ export class Game extends Phaser.Scene {
 
     private startDrawing(pointer: Phaser.Input.Pointer) {
         this.isDrawing = true;
-
-        this.graphics.beginPath();
-        this.graphics.moveTo(pointer.x, pointer.y);
+        
+        // Clear previous drawing points and start a new path
+        this.drawingPoints = [];
+        this.drawingLayer.beginPath();
+        this.drawingLayer.moveTo(pointer.x, pointer.y);
+        
+        // Store the initial point
+        this.drawingPoints.push({x: pointer.x, y: pointer.y});
         this.lastPos = new Phaser.Math.Vector2(pointer.x, pointer.y);
+        
         EventBus.emit("draw:start", { x: pointer.x, y: pointer.y });
     }
 
     private drawStroke(pointer: Phaser.Input.Pointer) {
         if (!this.isDrawing || !this.lastPos) return;
 
-        this.graphics.lineBetween(
+        this.drawingLayer.lineBetween(
             this.lastPos.x,
             this.lastPos.y,
             pointer.x,
             pointer.y
         );
+        
+        // Store the drawing point
+        this.drawingPoints.push({x: pointer.x, y: pointer.y});
         this.lastPos.set(pointer.x, pointer.y);
+        
         EventBus.emit("draw:point", { x: pointer.x, y: pointer.y });
     }
 
     private captureAndSaveDrawing() {
         try {
-            // Hide background temporarily
-            const bgVisible = this.background.visible;
-            this.background.visible = false;
-
-            // Create a temporary canvas
-            const tempCanvas = document.createElement("canvas");
-            tempCanvas.width = this.game.canvas.width;
-            tempCanvas.height = this.game.canvas.height;
-            const ctx = tempCanvas.getContext("2d");
+            // Create a 100x100 canvas with white background
+            const canvas = document.createElement("canvas");
+            canvas.width = 100;
+            canvas.height = 100;
+            const ctx = canvas.getContext("2d");
 
             if (!ctx) {
                 console.error("Could not get canvas context");
                 return;
             }
 
-            // Set white background
+            // Draw white background
             ctx.fillStyle = "#ffffff";
-            ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-
-            // Take a snapshot of the current scene
-            this.game.renderer.snapshot((image: HTMLImageElement) => {
-                // Draw the snapshot onto our white background
-                ctx.drawImage(image, 0, 0);
-
-                // Convert to PNG and save
-                const dataURL = tempCanvas.toDataURL("image/png");
-                const link = document.createElement("a");
-                link.download = `drawing-${Date.now()}.png`;
-                link.href = dataURL;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-
-                // Restore background visibility
-                this.background.visible = bgVisible;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // If no drawing points, just save the blank canvas
+            if (this.drawingPoints.length === 0) {
+                this.saveCanvasAsPNG(canvas);
+                return;
+            }
+            
+            // Find the bounding box of the drawing
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            this.drawingPoints.forEach(point => {
+                minX = Math.min(minX, point.x);
+                minY = Math.min(minY, point.y);
+                maxX = Math.max(maxX, point.x);
+                maxY = Math.max(maxY, point.y);
             });
+            
+            // Calculate drawing dimensions
+            const drawingWidth = maxX - minX;
+            const drawingHeight = maxY - minY;
+            
+            // Calculate scaling factor to fit the drawing into the canvas while maintaining aspect ratio
+            // Leave a small margin (10% of canvas size)
+            const margin = 10; // 10px margin
+            const availableWidth = canvas.width - (margin * 2);
+            const availableHeight = canvas.height - (margin * 2);
+            let scale = Math.min(
+                availableWidth / Math.max(1, drawingWidth),
+                availableHeight / Math.max(1, drawingHeight)
+            );
+            
+            // If drawing is too small, scale it up a bit
+            if (scale > 2) scale = 2;
+            
+            // Calculate centering offsets
+            const offsetX = (canvas.width - drawingWidth * scale) / 2 - minX * scale;
+            const offsetY = (canvas.height - drawingHeight * scale) / 2 - minY * scale;
+            
+            // Draw the lines in black with a thinner stroke for the small canvas
+            ctx.strokeStyle = "#000000";
+            ctx.lineWidth = 2; // Thinner line for the smaller canvas
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            
+            // Draw the lines using the stored drawing points
+            let isFirstPoint = true;
+            this.drawingPoints.forEach(point => {
+                if (isFirstPoint) {
+                    ctx.beginPath();
+                    ctx.moveTo(point.x * scale + offsetX, point.y * scale + offsetY);
+                    isFirstPoint = false;
+                } else {
+                    ctx.lineTo(point.x * scale + offsetX, point.y * scale + offsetY);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(point.x * scale + offsetX, point.y * scale + offsetY);
+                }
+            });
+            
+            // Save the canvas as PNG
+            this.saveCanvasAsPNG(canvas);
         } catch (error) {
             console.error("Error saving drawing:", error);
-            // Make sure background is restored even if there's an error
-            this.background.visible = true;
         }
     }
 
@@ -130,7 +180,7 @@ export class Game extends Phaser.Scene {
         this.isDrawing = false;
         this.lastPos = null;
 
-        this.graphics.closePath();
+        this.drawingLayer.closePath();
 
         // Capture and save the drawing before fading out
         this.captureAndSaveDrawing();
@@ -142,20 +192,21 @@ export class Game extends Phaser.Scene {
 
     private fadeOutGraphics() {
         this.tweens.add({
-            targets: this.graphics,
+            targets: this.drawingLayer,
             alpha: 0,
             duration: 500,
             ease: "Linear",
             onComplete: () => {
                 this.clearDrawing();
-                this.graphics.setAlpha(1);
+                this.drawingLayer.setAlpha(1);
             },
         });
     }
 
     public clearDrawing(): void {
-        this.graphics.clear();
-        this.graphics.lineStyle(10, 0x0000ff, 1);
+        this.drawingLayer.clear();
+        this.drawingLayer.lineStyle(10, 0x0000ff, 1);
+        this.drawingPoints = [];
         EventBus.emit("draw:clear", {});
     }
 
@@ -163,4 +214,3 @@ export class Game extends Phaser.Scene {
         this.scene.start("GameOver");
     }
 }
-
