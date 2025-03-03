@@ -109,13 +109,20 @@ export class Game extends Phaser.Scene {
                 maxY = Math.max(maxY, point.y);
             });
             
+            // Add padding to account for line thickness in the bounding box
+            const lineThickness = 10; // The line thickness in the original drawing
+            minX -= lineThickness / 2;
+            minY -= lineThickness / 2;
+            maxX += lineThickness / 2;
+            maxY += lineThickness / 2;
+            
             // Calculate drawing dimensions
             const drawingWidth = maxX - minX;
             const drawingHeight = maxY - minY;
             
             // Calculate scaling factor to fit the drawing into the canvas while maintaining aspect ratio
-            // Leave a small margin (10% of canvas size)
-            const margin = 10; // 10px margin
+            // Leave a small margin (15% of canvas size)
+            const margin = 15; // 15px margin
             const availableWidth = canvas.width - (margin * 2);
             const availableHeight = canvas.height - (margin * 2);
             let scale = Math.min(
@@ -130,26 +137,28 @@ export class Game extends Phaser.Scene {
             const offsetX = (canvas.width - drawingWidth * scale) / 2 - minX * scale;
             const offsetY = (canvas.height - drawingHeight * scale) / 2 - minY * scale;
             
-            // Draw the lines in black with a thinner stroke for the small canvas
+            // Draw the lines in black with a thick stroke for the small canvas
             ctx.strokeStyle = "#000000";
-            ctx.lineWidth = 2; // Thinner line for the smaller canvas
+            ctx.lineWidth = 9; // Thick line (8-10px as requested)
             ctx.lineCap = "round";
             ctx.lineJoin = "round";
             
             // Draw the lines using the stored drawing points
-            let isFirstPoint = true;
-            this.drawingPoints.forEach(point => {
-                if (isFirstPoint) {
-                    ctx.beginPath();
-                    ctx.moveTo(point.x * scale + offsetX, point.y * scale + offsetY);
-                    isFirstPoint = false;
-                } else {
+            if (this.drawingPoints.length > 1) {
+                ctx.beginPath();
+                // Move to the first point
+                const firstPoint = this.drawingPoints[0];
+                ctx.moveTo(firstPoint.x * scale + offsetX, firstPoint.y * scale + offsetY);
+                
+                // Connect all subsequent points
+                for (let i = 1; i < this.drawingPoints.length; i++) {
+                    const point = this.drawingPoints[i];
                     ctx.lineTo(point.x * scale + offsetX, point.y * scale + offsetY);
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.moveTo(point.x * scale + offsetX, point.y * scale + offsetY);
                 }
-            });
+                
+                // Stroke the entire path at once
+                ctx.stroke();
+            }
             
             // Save the canvas as PNG
             this.saveCanvasAsPNG(canvas);
